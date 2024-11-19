@@ -3,6 +3,8 @@ use tokio::net::TcpListener;
 //use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod router;
 
+static USER_API_URL: &str = "http://localhost:8080/api/v1";
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
