@@ -1,5 +1,5 @@
 [package]
-name = "home-automation-finance"
+name = "home_finance"
 version = "0.1.0"
 edition = "2021"
 publish = false
