@@ -1,6 +1,10 @@
 # home-automation-finance
 A finance automation API used to integrate into home-automation
 
+## Development
+
+Run: `cargo watch -x run` to enable hot reloading.
+
 ## Overview
 
 This document outlines the proposed API endpoints for interacting with the financial management database. The API will provide access to various entities such as Groups, Expenses, Budgets, and more, allowing for comprehensive management of financial data.

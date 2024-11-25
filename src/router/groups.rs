@@ -15,7 +15,7 @@ pub fn get_group_router() -> Router {
 }
 
 async fn list_groups() -> &'static str {
-    "not implemented"
+    "not implemented v2"
 }
 
 async fn create_group() -> &'static str {
