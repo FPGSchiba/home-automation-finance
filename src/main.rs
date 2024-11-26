@@ -15,7 +15,7 @@ async fn main() {
 
     let api_router = get_router();
 
-    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     axum::serve(listener, api_router).await.unwrap();
 }

@@ -1,18 +1,17 @@
-use std::{error::Error, str};
-
 use axum::{
-    body::Body,
     extract::Request,
-    http::{self, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::Response,
     routing::get,
     Json, Router,
 };
 use expenses::get_expense_router;
+use glob_match::glob_match;
 use groups::get_group_router;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
+use std::{error::Error, str};
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
@@ -42,18 +41,17 @@ struct Permission {
 #[derive(Serialize, Deserialize)]
 struct PermissionsResponse {
     message: String,
-    code: String,
+    status: String,
     permissions: Vec<Permission>,
 }
 
-async fn get_permissions_from_token(token: &String) -> Result<Vec<Permission>, Box<dyn Error>> {
+async fn get_permissions_from_token(token: &str) -> Result<Vec<Permission>, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let res = client
-        .get(USER_API_URL)
+        .get(USER_API_URL.to_owned() + "/permissions/")
         .header(AUTHORIZATION, token)
         .send()
         .await?;
-
     let value: PermissionsResponse = res.json().await?;
     Ok(value.permissions)
 }
@@ -68,7 +66,14 @@ async fn auth(
     next: Next,
 ) -> Result<Response, StatusCode> {
     match get_token(&headers) {
-        Some(token) if token_is_valid(&token).await => {
+        Some(token)
+            if token_is_valid(
+                token,
+                format!("/api/v1/finance{}/", request.uri().to_string()),
+                request.method().to_string(),
+            )
+            .await =>
+        {
             let response = next.run(request).await;
             Ok(response)
         }
@@ -76,20 +81,30 @@ async fn auth(
     }
 }
 
-fn get_token(headers: &HeaderMap) -> Option<String> {
+fn get_token(headers: &HeaderMap) -> Option<&str> {
     if let Some(auth_header) = headers.get(AUTHORIZATION) {
-        let auth_str = auth_header.to_str().unwrap();
-        Some(auth_str.replace("Bearer ", "").to_string())
+        Some(auth_header.to_str().unwrap())
     } else {
         None
     }
 }
 
-async fn token_is_valid(token: &String) -> bool {
-    if let Ok(permissions) = get_permissions_from_token(token).await {
-        true
-    } else {
-        false
+async fn token_is_valid(token: &str, uri: String, method: String) -> bool {
+    match get_permissions_from_token(token).await {
+        Ok(value) => {
+            for permission in value.iter() {
+                for route in permission.routes.iter() {
+                    if glob_match(&route.path, &uri) && route.methods.contains(&method) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        Err(error) => {
+            println!("{}", error);
+            false
+        }
     }
 }
 
@@ -103,7 +118,7 @@ pub fn get_router() -> Router {
 
     Router::new()
         .route("/", get(version))
-        .nest("/api/v1", api_router)
+        .nest("/api/v1/finance", api_router)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
