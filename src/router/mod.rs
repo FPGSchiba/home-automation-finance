@@ -1,5 +1,5 @@
 use axum::{
-    extract::Request,
+    extract::{Extension, Request},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -11,11 +11,11 @@ use glob_match::glob_match;
 use groups::get_group_router;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, str};
+use std::{error::Error, str, sync::Arc};
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
-use crate::USER_API_URL;
+use crate::{AppState, USER_API_URL};
 
 mod expenses;
 mod groups;
@@ -109,7 +109,7 @@ async fn token_is_valid(token: &str, uri: String, method: String) -> bool {
 }
 
 pub fn get_router() -> Router {
-    let group_router = get_group_router();
+    let group_router: Router = get_group_router();
     let expense_router = get_expense_router();
     let api_router = Router::new()
         .nest("/groups", group_router)
@@ -126,7 +126,8 @@ pub fn get_router() -> Router {
         )
 }
 
-async fn version() -> Json<Version> {
+async fn version(Extension(state): Extension<Arc<AppState>>) -> Json<Version> {
+    let db = &state.db;
     Json(Version {
         version: VERSION.to_owned(),
     })
