@@ -11,7 +11,6 @@ pub fn get_expense_router() -> Router {
         .route("/:expense_id", get(get_expense))
         .route("/:expense_id", put(update_expense))
         .route("/:expense_id", delete(delete_expense))
-        .route("/:expense_id", post(assign_members))
 }
 
 async fn list_expenses() -> &'static str {
@@ -31,9 +30,5 @@ async fn update_expense(Path(expense_id): Path<String>) -> &'static str {
 }
 
 async fn delete_expense(Path(expense_id): Path<String>) -> &'static str {
-    "not implemented"
-}
-
-async fn assign_members(Path(expense_id): Path<String>) -> &'static str {
     "not implemented"
 }

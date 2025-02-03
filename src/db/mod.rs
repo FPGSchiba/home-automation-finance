@@ -26,7 +26,7 @@ impl DB {
 
         let group_collection = database.collection::<Document>("groups");
 
-        println!("✅ Database connected successfully");
+        tracing::info!("Database connection established successfully.");
 
         Ok(Self {
             collection: group_collection,
