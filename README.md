@@ -3,7 +3,8 @@ A finance automation API used to integrate into home-automation
 
 ## Development
 
-Run: `cargo watch -x run` to enable hot reloading.
+Run: `cargo watch -x 'run -- debug'` to enable hot reloading and disable authentication.
+To enable Authentication, remove the `-- debug` flag.
 
 ## Overview
 

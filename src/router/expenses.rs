@@ -8,9 +8,9 @@ pub fn get_expense_router() -> Router {
     Router::new()
         .route("/", get(list_expenses))
         .route("/", post(create_expense))
-        .route("/:expense_id", get(get_expense))
-        .route("/:expense_id", put(update_expense))
-        .route("/:expense_id", delete(delete_expense))
+        .route("/{expense_id}", get(get_expense))
+        .route("/{expense_id}", put(update_expense))
+        .route("/{expense_id}", delete(delete_expense))
 }
 
 async fn list_expenses() -> &'static str {

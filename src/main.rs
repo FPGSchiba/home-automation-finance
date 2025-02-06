@@ -1,6 +1,7 @@
 mod db;
 mod router;
 
+use std::env;
 use std::sync::Arc;
 
 use axum::extract::Extension;
@@ -27,8 +28,14 @@ async fn main() -> Result<(), DBError> {
 
     dotenv().ok();
 
+    let args: Vec<String> = env::args().collect();
+    let is_debug = false;
+    if args.len() > 1 && args[1] == "debug" {
+        tracing::info!("Debug mode enabled");
+    }
+
     let db = DB::init().await?;
-    let api_router = get_router().layer(Extension(Arc::new(AppState { db })));
+    let api_router = get_router(is_debug).layer(Extension(Arc::new(AppState { db })));
 
     let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());

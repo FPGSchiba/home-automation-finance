@@ -8,9 +8,9 @@ pub fn get_expense_category_router() -> Router {
     Router::new()
         .route("/", get(list_expense_categories))
         .route("/", post(create_expense_category))
-        .route("/:expense_category_id", get(get_expense_category))
-        .route("/:expense_category_id", put(update_expense_category))
-        .route("/:expense_category_id", delete(delete_expense_category))
+        .route("/{expense_category_id}", get(get_expense_category))
+        .route("/{expense_category_id}", put(update_expense_category))
+        .route("/{expense_category_id}", delete(delete_expense_category))
 }
 
 async fn list_expense_categories() -> &'static str {

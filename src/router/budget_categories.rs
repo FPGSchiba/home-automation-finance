@@ -8,9 +8,9 @@ pub fn get_budget_category_router() -> Router {
     Router::new()
         .route("/", get(list_budget_categories))
         .route("/", post(create_budget_category))
-        .route("/:budget_category_id", get(get_budget_category))
-        .route("/:budget_category_id", put(update_budget_category))
-        .route("/:budget_category_id", delete(delete_budget_category))
+        .route("/{budget_category_id}", get(get_budget_category))
+        .route("/{budget_category_id}", put(update_budget_category))
+        .route("/{budget_category_id}", delete(delete_budget_category))
 }
 
 async fn list_budget_categories() -> &'static str {

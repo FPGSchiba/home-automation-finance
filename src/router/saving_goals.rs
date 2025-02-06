@@ -8,9 +8,9 @@ pub fn get_saving_goal_router() -> Router {
     Router::new()
         .route("/", get(list_saving_goals))
         .route("/", post(create_saving_goal))
-        .route("/:goal_id", get(get_saving_goal))
-        .route("/:goal_id", put(update_saving_goal))
-        .route("/:goal_id", delete(delete_saving_goal))
+        .route("/{goal_id}", get(get_saving_goal))
+        .route("/{goal_id}", put(update_saving_goal))
+        .route("/{goal_id}", delete(delete_saving_goal))
 }
 
 async fn list_saving_goals() -> &'static str {

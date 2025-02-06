@@ -8,9 +8,9 @@ pub fn get_budget_router() -> Router {
     Router::new()
         .route("/", get(list_budgets))
         .route("/", post(create_budget))
-        .route("/:budget_id", get(get_budget))
-        .route("/:budget_id", put(update_budget))
-        .route("/:budget_id", delete(delete_budget))
+        .route("/{budget_id}", get(get_budget))
+        .route("/{budget_id}", put(update_budget))
+        .route("/{budget_id}", delete(delete_budget))
 }
 
 async fn list_budgets() -> &'static str {

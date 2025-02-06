@@ -1,17 +1,27 @@
 use errors::DBError;
+use futures::TryStreamExt;
 use mongodb::bson::Document;
 use mongodb::{options::ClientOptions, Client, Collection};
 
+pub mod db_groups;
 pub mod errors;
-mod m_group;
+pub mod m_group;
 
 #[derive(Clone, Debug)]
 pub struct DB {
-    pub collection: Collection<Document>,
+    pub group_collection: Collection<Document>,
+    pub expense_collection: Collection<Document>,
+    pub repeating_expense_collection: Collection<Document>,
+    pub expense_category_collection: Collection<Document>,
+    pub budget_collection: Collection<Document>,
+    pub budget_category_collection: Collection<Document>,
+    pub budget_view_collection: Collection<Document>,
+    pub saving_goal_collection: Collection<Document>,
 }
 
 type Result<T> = std::result::Result<T, DBError>;
 
+// Basis
 impl DB {
     pub async fn init() -> Result<Self> {
         let mongodb_uri = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set.");
@@ -25,189 +35,53 @@ impl DB {
         let database = client.database(database_name.as_str());
 
         let group_collection = database.collection::<Document>("groups");
+        let expense_collection = database.collection::<Document>("expenses");
+        let repeating_expense_collection = database.collection::<Document>("repeating_expenses");
+        let expense_category_collection = database.collection::<Document>("expense_categories");
+        let budget_collection = database.collection::<Document>("budgets");
+        let budget_category_collection = database.collection::<Document>("budget_categories");
+        let budget_view_collection = database.collection::<Document>("budget_views");
+        let saving_goal_collection = database.collection::<Document>("saving_goals");
 
         tracing::info!("Database connection established successfully.");
 
         Ok(Self {
-            collection: group_collection,
+            group_collection,
+            expense_collection,
+            repeating_expense_collection,
+            expense_category_collection,
+            budget_collection,
+            budget_category_collection,
+            budget_view_collection,
+            saving_goal_collection,
         })
     }
-    /*
-    pub async fn fetch_notes(&self, limit: i64, page: i64) -> Result<NoteListResponse> {
-        let find_options = FindOptions::builder()
-            .limit(limit)
-            .skip(u64::try_from((page - 1) * limit).unwrap())
-            .build();
+}
 
-        let mut cursor = self
-            .note_collection
-            .find(None, find_options)
-            .await
-            .map_err(MongoQueryError)?;
-
-        let mut json_result: Vec<NoteResponse> = Vec::new();
-        while let Some(doc) = cursor.next().await {
-            json_result.push(self.doc_to_note(&doc.unwrap())?);
-        }
-
-        Ok(NoteListResponse {
-            status: "success",
-            results: json_result.len(),
-            notes: json_result,
-        })
-    }
-
-    pub async fn create_note(&self, body: &CreateNoteSchema) -> Result<SingleNoteResponse> {
-        let published = body.published.to_owned().unwrap_or(false);
-        let category = body.category.to_owned().unwrap_or_default();
-
-        let document = self.create_note_document(body, published, category)?;
-
-        let options = IndexOptions::builder().unique(true).build();
-        let index = IndexModel::builder()
-            .keys(doc! {"title": 1})
-            .options(options)
-            .build();
-
-        match self.note_collection.create_index(index, None).await {
-            Ok(_) => {}
-            Err(e) => return Err(MongoQueryError(e)),
-        };
-
-        let insert_result = match self.collection.insert_one(&document, None).await {
-            Ok(result) => result,
-            Err(e) => {
-                if e.to_string()
-                    .contains("E11000 duplicate key error collection")
-                {
-                    return Err(MongoDuplicateError(e));
-                }
-                return Err(MongoQueryError(e));
+// Groups
+impl DB {
+    pub async fn list_groups(&self) -> Result<Vec<m_group::ListingGroup>> {
+        let mut cursor = self.group_collection.find(Document::new()).await?;
+        let mut listing_groups = vec![];
+        while let Some(result) = cursor.try_next().await? {
+            if let Ok(group) =
+                bson::from_bson::<m_group::ListingGroup>(bson::Bson::Document(result))
+            {
+                listing_groups.push(m_group::ListingGroup {
+                    id: group.id,
+                    name: group.name,
+                    status: group.status,
+                    group_type: group.group_type,
+                });
             }
-        };
-
-        let new_id = insert_result
-            .inserted_id
-            .as_object_id()
-            .expect("issue with new _id");
-
-        let note_doc = match self
-            .note_collection
-            .find_one(doc! {"_id": new_id}, None)
-            .await
-        {
-            Ok(Some(doc)) => doc,
-            Ok(None) => return Err(NotFoundError(new_id.to_string())),
-            Err(e) => return Err(MongoQueryError(e)),
-        };
-
-        Ok(SingleNoteResponse {
-            status: "success",
-            data: NoteData {
-                note: self.doc_to_note(&note_doc)?,
-            },
-        })
-    }
-
-    pub async fn get_note(&self, id: &str) -> Result<SingleNoteResponse> {
-        let oid = ObjectId::from_str(id).map_err(|_| InvalidIDError(id.to_owned()))?;
-
-        let note_doc = self
-            .note_collection
-            .find_one(doc! {"_id":oid }, None)
-            .await
-            .map_err(MongoQueryError)?;
-
-        match note_doc {
-            Some(doc) => {
-                let note = self.doc_to_note(&doc)?;
-                Ok(SingleNoteResponse {
-                    status: "success",
-                    data: NoteData { note },
-                })
-            }
-            None => Err(NotFoundError(id.to_string())),
         }
+        Ok(listing_groups)
     }
 
-    pub async fn edit_note(&self, id: &str, body: &UpdateNoteSchema) -> Result<SingleNoteResponse> {
-        let oid = ObjectId::from_str(id).map_err(|_| InvalidIDError(id.to_owned()))?;
-
-        let update = doc! {
-            "$set": bson::to_document(body).map_err(MongoSerializeBsonError)?,
-        };
-
-        let options = FindOneAndUpdateOptions::builder()
-            .return_document(ReturnDocument::After)
-            .build();
-
-        if let Some(doc) = self
-            .note_collection
-            .find_one_and_update(doc! {"_id": oid}, update, options)
-            .await
-            .map_err(MongoQueryError)?
-        {
-            let note = self.doc_to_note(&doc)?;
-            let note_response = SingleNoteResponse {
-                status: "success",
-                data: NoteData { note },
-            };
-            Ok(note_response)
-        } else {
-            Err(NotFoundError(id.to_string()))
-        }
+    pub async fn insert_one(&self, group: m_group::Group) -> Result<()> {
+        self.group_collection
+            .insert_one(bson::to_document(&group)?)
+            .await?;
+        Ok(())
     }
-
-    pub async fn delete_note(&self, id: &str) -> Result<()> {
-        let oid = ObjectId::from_str(id).map_err(|_| InvalidIDError(id.to_owned()))?;
-        let filter = doc! {"_id": oid };
-
-        let result = self
-            .collection
-            .delete_one(filter, None)
-            .await
-            .map_err(MongoQueryError)?;
-
-        match result.deleted_count {
-            0 => Err(NotFoundError(id.to_string())),
-            _ => Ok(()),
-        }
-    }
-
-    fn doc_to_note(&self, note: &NoteModel) -> Result<NoteResponse> {
-        let note_response = NoteResponse {
-            id: note.id.to_hex(),
-            title: note.title.to_owned(),
-            content: note.content.to_owned(),
-            category: note.category.to_owned().unwrap(),
-            published: note.published.unwrap(),
-            createdAt: note.createdAt,
-            updatedAt: note.updatedAt,
-        };
-
-        Ok(note_response)
-    }
-
-    fn create_note_document(
-        &self,
-        body: &CreateNoteSchema,
-        published: bool,
-        category: String,
-    ) -> Result<bson::Document> {
-        let serialized_data = bson::to_bson(body).map_err(MongoSerializeBsonError)?;
-        let document = serialized_data.as_document().unwrap();
-
-        let datetime = Utc::now();
-
-        let mut doc_with_dates = doc! {
-            "createdAt": datetime,
-            "updatedAt": datetime,
-            "published": published,
-            "category": category
-        };
-        doc_with_dates.extend(document.clone());
-
-        Ok(doc_with_dates)
-    }
-     */
 }

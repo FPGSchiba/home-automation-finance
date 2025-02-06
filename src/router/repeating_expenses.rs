@@ -8,9 +8,9 @@ pub fn get_repeating_expenses_router() -> Router {
     Router::new()
         .route("/", get(list_repeating_expenses))
         .route("/", post(create_repeating_expense))
-        .route("/:expense_id", get(get_repeating_expense))
-        .route("/:expense_id", put(update_repeating_expense))
-        .route("/:expense_id", delete(delete_repeating_expense))
+        .route("/{expense_id}", get(get_repeating_expense))
+        .route("/{expense_id}", put(update_repeating_expense))
+        .route("/{expense_id}", delete(delete_repeating_expense))
 }
 
 async fn list_repeating_expenses() -> &'static str {

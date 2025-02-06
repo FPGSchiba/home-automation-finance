@@ -31,6 +31,7 @@ mod expenses;
 mod groups;
 mod repeating_expenses;
 mod saving_goals;
+mod utils;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -120,7 +121,7 @@ async fn token_is_valid(token: &str, uri: String, method: String) -> bool {
     }
 }
 
-pub fn get_router() -> Router {
+pub fn get_router(is_debug: bool) -> Router {
     let group_router: Router = get_group_router();
     let expense_router = get_expense_router();
     let repeating_expense_router = get_repeating_expenses_router();
@@ -129,7 +130,7 @@ pub fn get_router() -> Router {
     let budget_router = get_budget_router();
     let budget_view_router = get_budget_view_router();
     let saving_goal_router = get_saving_goal_router();
-    let api_router = Router::new()
+    let mut api_router = Router::new()
         .nest("/groups", group_router)
         .nest("/expenses", expense_router)
         .nest("/repeating-expenses", repeating_expense_router)
@@ -137,8 +138,10 @@ pub fn get_router() -> Router {
         .nest("/budget-categories", budget_category_router)
         .nest("/budgets", budget_router)
         .nest("/budget-views", budget_view_router)
-        .nest("/saving-goals", saving_goal_router)
-        .route_layer(middleware::from_fn(auth));
+        .nest("/saving-goals", saving_goal_router);
+    if is_debug {
+        api_router = api_router.route_layer(middleware::from_fn(auth));
+    }
 
     Router::new()
         .route("/", get(version))
