@@ -1,6 +1,6 @@
 use super::utils::{HomeResponse, StatusCode};
 use crate::{
-    db::m_group::{Group, GroupStatus, GroupType, ListingGroup},
+    db::m_group::{Group, GroupStatus, GroupType},
     AppState,
 };
 
