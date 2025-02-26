@@ -19,6 +19,8 @@ pub enum DBError {
     InvalidIDError(String),
     #[error("Note with ID: {0} not found")]
     NotFoundError(String),
+    #[error("Deserialization error")]
+    DeserializationError(#[from] mongodb::bson::de::Error),
 }
 
 #[derive(Serialize)]
@@ -84,6 +86,13 @@ impl Into<(axum::http::StatusCode, Json<serde_json::Value>)> for DBError {
                 ErrorResponse {
                     status: "error",
                     message: format!("MongoDB error: {}", e),
+                },
+            ),
+            DBError::DeserializationError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorResponse {
+                    status: "error",
+                    message: format!("Deserialization error: {}", e),
                 },
             ),
         };

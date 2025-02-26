@@ -1,11 +1,15 @@
+use bson::doc;
+use bson::oid::ObjectId;
 use errors::DBError;
 use futures::TryStreamExt;
+use m_group::CreateGroup;
 use mongodb::bson::Document;
 use mongodb::{options::ClientOptions, Client, Collection};
+use serde::de::Error;
 
-pub mod db_groups;
 pub mod errors;
 pub mod m_group;
+pub mod utils;
 
 #[derive(Clone, Debug)]
 pub struct DB {
@@ -61,27 +65,138 @@ impl DB {
 // Groups
 impl DB {
     pub async fn list_groups(&self) -> Result<Vec<m_group::ListingGroup>> {
-        let mut cursor = self.group_collection.find(Document::new()).await?;
+        let mut cursor = self
+            .group_collection
+            .find(doc! {"status": "Active"})
+            .await?;
         let mut listing_groups = vec![];
         while let Some(result) = cursor.try_next().await? {
             if let Ok(group) =
                 bson::from_bson::<m_group::ListingGroup>(bson::Bson::Document(result))
             {
-                listing_groups.push(m_group::ListingGroup {
-                    id: group.id,
-                    name: group.name,
-                    status: group.status,
-                    group_type: group.group_type,
-                });
+                listing_groups.push(group);
             }
         }
         Ok(listing_groups)
     }
 
-    pub async fn insert_one(&self, group: m_group::Group) -> Result<()> {
-        self.group_collection
+    pub async fn create_group(&self, create_group: CreateGroup) -> Result<String> {
+        let group = m_group::BsonGroup {
+            id: None,
+            name: create_group.name,
+            admins: create_group
+                .admins
+                .iter()
+                .map(|id| ObjectId::parse_str(id).unwrap())
+                .collect(),
+            members: create_group
+                .members
+                .iter()
+                .map(|id| ObjectId::parse_str(id).unwrap())
+                .collect(),
+            status: m_group::GroupStatus::Active,
+            group_type: create_group.group_type,
+            created_at: chrono::Utc::now().into(),
+            updated_at: None,
+            disbanded_at: None,
+        };
+        let res = self
+            .group_collection
             .insert_one(bson::to_document(&group)?)
             .await?;
+        Ok(res.inserted_id.as_object_id().unwrap().to_hex())
+    }
+
+    pub async fn get_group(&self, group_id: String) -> Result<m_group::JsonGroup> {
+        let group_id = ObjectId::parse_str(&group_id).unwrap();
+        let group = self
+            .group_collection
+            .find_one(doc! {"_id": group_id})
+            .await?;
+        match group {
+            Some(group) => match bson::from_bson::<m_group::BsonGroup>(bson::Bson::Document(group))
+            {
+                Ok(group) => return Ok(group.into()),
+                Err(e) => {
+                    tracing::error!("Error deserializing group: {}", e);
+                    return Err(DBError::DeserializationError(e));
+                }
+            },
+            None => Err(DBError::NotFoundError(group_id.to_hex())),
+        }
+    }
+
+    pub async fn update_group(
+        &self,
+        group_id: String,
+        group: m_group::UpdateGroup,
+    ) -> Result<String> {
+        let group_id = ObjectId::parse_str(&group_id).unwrap();
+        let res = self
+            .group_collection
+            .update_one(
+                doc! {"_id": group_id},
+                doc! {"$set": {"name": &group.name, "groupType": bson::to_bson(&group.group_type)?, "updatedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
+            )
+            .await?;
+        if res.modified_count == 0 {
+            return Err(DBError::NotFoundError(group_id.to_hex()));
+        }
+        Ok(group_id.to_hex())
+    }
+
+    pub async fn disband_group(&self, group_id: String) -> Result<()> {
+        let group_id = ObjectId::parse_str(&group_id).unwrap();
+        let res = self
+            .group_collection
+            .update_one(
+                doc! {"_id": group_id},
+                doc! {"$set": {"status": "Disbanded", "disbandedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
+            )
+            .await?;
+        if res.modified_count == 0 {
+            return Err(DBError::NotFoundError(group_id.to_hex()));
+        }
         Ok(())
+    }
+
+    pub async fn assign_members(&self, group_id: String, members: Vec<ObjectId>) -> Result<()> {
+        let group_id = ObjectId::parse_str(&group_id).unwrap();
+        let res = self
+            .group_collection
+            .update_one(doc! {"_id": group_id}, doc! {"$set": {"members": members}})
+            .await?;
+        if res.modified_count == 0 {
+            return Err(DBError::NotFoundError(group_id.to_hex()));
+        }
+        Ok(())
+    }
+
+    pub async fn list_group_memerships_for_user(
+        &self,
+        user_id: String,
+    ) -> Result<Vec<m_group::GroupMembership>> {
+        let mut memberships: Vec<m_group::GroupMembership> = vec![];
+        let user_id = ObjectId::parse_str(&user_id).unwrap();
+        let mut cursor = self
+            .group_collection
+            .find(doc! {"$or": [{"members": user_id}, {"admins": user_id}]})
+            .await?;
+
+        while let Some(group) = cursor.try_next().await? {
+            let role = if group
+                .get_array("admins")?
+                .contains(&bson::Bson::ObjectId(user_id.clone()))
+            {
+                m_group::GroupRole::Admin
+            } else {
+                m_group::GroupRole::Member
+            };
+            memberships.push(m_group::GroupMembership {
+                group_id: group.get_object_id("_id")?,
+                role,
+            });
+        }
+        Ok(vec![])
     }
 }

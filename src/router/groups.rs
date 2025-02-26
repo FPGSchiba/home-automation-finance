@@ -1,26 +1,18 @@
-use super::utils::{HomeResponse, StatusCode};
+use super::utils::{CreateDataResponse, HomeResponse, HomeStatusCode};
 use crate::{
-    db::m_group::{Group, GroupStatus, GroupType},
+    db::m_group::{CreateGroup, GroupStatus, GroupType, UpdateGroup},
     AppState,
 };
 
 use axum::{
     extract::{self, Path},
+    http::StatusCode,
+    response::IntoResponse,
     routing::{delete, get, post, put},
     Extension, Json, Router,
 };
-use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-#[derive(Serialize, Deserialize)]
-struct CreateGroup {
-    name: String,
-    admins: Vec<ObjectId>,
-    members: Vec<ObjectId>,
-    #[serde(rename = "groupType")]
-    group_type: GroupType,
-}
 
 #[derive(Serialize, Deserialize)]
 struct GroupList {
@@ -42,6 +34,7 @@ pub fn get_group_router() -> Router {
 }
 
 async fn list_groups(
+    // TO DO: Think more about the query parameters (Filters, Sorting, Pagination and Deleted groups)
     Extension(state): Extension<Arc<AppState>>,
 ) -> Json<HomeResponse<Vec<GroupList>>> {
     let db = &state.db;
@@ -58,7 +51,7 @@ async fn list_groups(
         })
         .collect();
     Json(HomeResponse {
-        code: StatusCode::Success,
+        code: HomeStatusCode::Success,
         message: "List of groups".to_string(),
         data: Some(groups),
     })
@@ -68,34 +61,65 @@ async fn list_groups(
 async fn create_group(
     Extension(state): Extension<Arc<AppState>>,
     extract::Json(payload): extract::Json<CreateGroup>,
-) -> Json<HomeResponse<()>> {
+) -> Json<HomeResponse<CreateDataResponse>> {
     let db = &state.db;
     let group = payload;
-    db.insert_one(Group {
-        id: None,
-        name: group.name,
-        admins: group.admins,
-        members: group.members,
-        status: GroupStatus::Active,
-        group_type: group.group_type,
-        created_at: chrono::Utc::now().into(),
-        disbanded_at: None,
-    })
-    .await
-    .unwrap();
+    let id = db.create_group(group).await.unwrap();
     Json(HomeResponse {
-        code: StatusCode::Success,
+        code: HomeStatusCode::Success,
         message: "Group created successfully".to_string(),
-        data: None,
+        data: Some(CreateDataResponse { id }),
     })
 }
 
-async fn get_group(Path(group_id): Path<String>) -> &'static str {
-    "not implemented"
+async fn get_group(
+    Extension(state): Extension<Arc<AppState>>,
+    Path(group_id): Path<String>,
+) -> impl IntoResponse {
+    let db = &state.db;
+    match db.get_group(group_id).await {
+        Ok(group) => {
+            return (
+                StatusCode::OK,
+                Json(HomeResponse {
+                    code: HomeStatusCode::Success,
+                    message: "Group details".to_string(),
+                    data: Some(group),
+                }),
+            );
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(HomeResponse {
+                    code: HomeStatusCode::Error,
+                    message: format!("Error getting group: {}", err),
+                    data: None,
+                }),
+            );
+        }
+    }
 }
 
-async fn update_group(Path(group_id): Path<String>) -> &'static str {
-    "not implemented"
+async fn update_group(
+    Extension(state): Extension<Arc<AppState>>,
+    Path(group_id): Path<String>,
+    extract::Json(payload): extract::Json<UpdateGroup>,
+) -> Json<HomeResponse<CreateDataResponse>> {
+    let db = &state.db;
+    let group = payload;
+    match db.update_group(group_id.clone(), group).await {
+        Ok(id) => Json(HomeResponse {
+            code: HomeStatusCode::Success,
+            message: "Group updated successfully".to_string(),
+            data: Some(CreateDataResponse { id }),
+        }),
+        Err(err) => Json(HomeResponse {
+            code: HomeStatusCode::Error,
+            message: format!("Failed to update Group: {}", err),
+            data: None,
+        }),
+    }
 }
 
 async fn delete_group(Path(group_id): Path<String>) -> &'static str {
