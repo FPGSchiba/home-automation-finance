@@ -1,6 +1,6 @@
-use super::utils::{CreateDataResponse, HomeResponse, HomeStatusCode};
+use super::utils::{CreateDataResponse, HomeResponse, HomeStatusCode, UserInformation};
 use crate::{
-    db::m_group::{CreateGroup, GroupStatus, GroupType, UpdateGroup},
+    db::m_group::{AssignMembers, CreateGroup, GroupStatus, GroupType, UpdateGroup},
     AppState,
 };
 
@@ -23,6 +23,7 @@ struct GroupList {
     pub group_type: GroupType,
 }
 
+// TODO: Better Error handling with Status Codes
 pub fn get_group_router() -> Router {
     Router::new()
         .route("/", get(list_groups))
@@ -122,10 +123,69 @@ async fn update_group(
     }
 }
 
-async fn delete_group(Path(group_id): Path<String>) -> &'static str {
-    "not implemented"
+async fn delete_group(
+    Extension(state): Extension<Arc<AppState>>,
+    Path(group_id): Path<String>,
+) -> Json<HomeResponse<()>> {
+    let db = &state.db;
+    match db.disband_group(group_id).await {
+        Ok(_) => Json(HomeResponse {
+            code: HomeStatusCode::Success,
+            message: "Group deleted successfully".to_string(),
+            data: None,
+        }),
+        Err(err) => Json(HomeResponse {
+            code: HomeStatusCode::Error,
+            message: format!("Failed to delete Group: {}", err),
+            data: None,
+        }),
+    }
 }
 
-async fn assign_members(Path(group_id): Path<String>) -> &'static str {
-    "not implemented"
+async fn assign_members(
+    Extension(state): Extension<Arc<AppState>>,
+    Extension(user_info): Extension<UserInformation>,
+    Path(group_id): Path<String>,
+    extract::Json(payload): extract::Json<AssignMembers>,
+) -> (StatusCode, Json<HomeResponse<()>>) {
+    let db = &state.db;
+    let user_id = user_info.user_id.clone();
+    match db.is_user_admin(&group_id, &user_id).await {
+        Ok(true) => {
+            return match db.assign_members(group_id, &user_id, payload.members).await {
+                Ok(_) => (
+                    StatusCode::OK,
+                    Json(HomeResponse {
+                        code: HomeStatusCode::Success,
+                        message: "Members assigned successfully".to_string(),
+                        data: None,
+                    }),
+                ),
+                Err(err) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(HomeResponse {
+                        code: HomeStatusCode::Error,
+                        message: format!("Failed to assign members: {}", err),
+                        data: None,
+                    }),
+                ),
+            }
+        }
+        Ok(false) => (
+            StatusCode::UNAUTHORIZED,
+            Json(HomeResponse {
+                code: HomeStatusCode::Unauthorized,
+                message: "You are not an admin of this group".to_string(),
+                data: None,
+            }),
+        ),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(HomeResponse {
+                code: HomeStatusCode::Error,
+                message: format!("Failed to check if user is admin: {}", err),
+                data: None,
+            }),
+        ),
+    }
 }

@@ -29,8 +29,9 @@ async fn main() -> Result<(), DBError> {
     dotenv().ok();
 
     let args: Vec<String> = env::args().collect();
-    let is_debug = false;
+    let mut is_debug = false;
     if args.len() > 1 && args[1] == "debug" {
+        is_debug = true;
         tracing::info!("Debug mode enabled");
     }
 

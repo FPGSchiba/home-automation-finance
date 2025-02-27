@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, str, sync::Arc};
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
+use utils::UserInformation;
 
 use crate::{AppState, USER_API_URL};
 
@@ -56,9 +57,11 @@ struct PermissionsResponse {
     message: String,
     status: String,
     permissions: Vec<Permission>,
+    #[serde(rename = "userId")]
+    user_id: String,
 }
 
-async fn get_permissions_from_token(token: &str) -> Result<Vec<Permission>, Box<dyn Error>> {
+async fn get_permissions_from_token(token: &str) -> Result<PermissionsResponse, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let res = client
         .get(USER_API_URL.to_owned() + "/permissions/")
@@ -66,16 +69,12 @@ async fn get_permissions_from_token(token: &str) -> Result<Vec<Permission>, Box<
         .send()
         .await?;
     let value: PermissionsResponse = res.json().await?;
-    Ok(value.permissions)
+    Ok(value)
 }
 
 async fn auth(
-    // run the `HeaderMap` extractor
     headers: HeaderMap,
-    // you can also add more extractors here but the last
-    // extractor must implement `FromRequest` which
-    // `Request` does
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
     match get_token(&headers) {
@@ -87,6 +86,11 @@ async fn auth(
             )
             .await =>
         {
+            if let Ok(permissions_response) = get_permissions_from_token(token).await {
+                request.extensions_mut().insert(UserInformation {
+                    user_id: permissions_response.user_id,
+                });
+            }
             let response = next.run(request).await;
             Ok(response)
         }
@@ -105,7 +109,7 @@ fn get_token(headers: &HeaderMap) -> Option<&str> {
 async fn token_is_valid(token: &str, uri: String, method: String) -> bool {
     match get_permissions_from_token(token).await {
         Ok(value) => {
-            for permission in value.iter() {
+            for permission in value.permissions.iter() {
                 for route in permission.routes.iter() {
                     if glob_match(&route.path, &uri) && route.methods.contains(&method) {
                         return true;
@@ -119,6 +123,14 @@ async fn token_is_valid(token: &str, uri: String, method: String) -> bool {
             false
         }
     }
+}
+
+async fn debug_auth(mut request: Request, next: Next) -> Result<Response, StatusCode> {
+    request.extensions_mut().insert(UserInformation {
+        user_id: "6798dd5ddd620811a5cb8450".to_owned(),
+    });
+    let response = next.run(request).await;
+    Ok(response)
 }
 
 pub fn get_router(is_debug: bool) -> Router {
@@ -139,8 +151,10 @@ pub fn get_router(is_debug: bool) -> Router {
         .nest("/budgets", budget_router)
         .nest("/budget-views", budget_view_router)
         .nest("/saving-goals", saving_goal_router);
-    if is_debug {
+    if !is_debug {
         api_router = api_router.route_layer(middleware::from_fn(auth));
+    } else {
+        api_router = api_router.route_layer(middleware::from_fn(debug_auth));
     }
 
     Router::new()

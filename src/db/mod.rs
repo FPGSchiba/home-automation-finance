@@ -5,22 +5,20 @@ use futures::TryStreamExt;
 use m_group::CreateGroup;
 use mongodb::bson::Document;
 use mongodb::{options::ClientOptions, Client, Collection};
-use serde::de::Error;
 
 pub mod errors;
 pub mod m_group;
-pub mod utils;
 
 #[derive(Clone, Debug)]
 pub struct DB {
-    pub group_collection: Collection<Document>,
-    pub expense_collection: Collection<Document>,
-    pub repeating_expense_collection: Collection<Document>,
-    pub expense_category_collection: Collection<Document>,
-    pub budget_collection: Collection<Document>,
-    pub budget_category_collection: Collection<Document>,
-    pub budget_view_collection: Collection<Document>,
-    pub saving_goal_collection: Collection<Document>,
+    group_collection: Collection<Document>,
+    expense_collection: Collection<Document>,
+    repeating_expense_collection: Collection<Document>,
+    expense_category_collection: Collection<Document>,
+    budget_collection: Collection<Document>,
+    budget_category_collection: Collection<Document>,
+    budget_view_collection: Collection<Document>,
+    saving_goal_collection: Collection<Document>,
 }
 
 type Result<T> = std::result::Result<T, DBError>;
@@ -122,7 +120,10 @@ impl DB {
                     return Err(DBError::DeserializationError(e));
                 }
             },
-            None => Err(DBError::NotFoundError(group_id.to_hex())),
+            None => Err(DBError::NotFoundError(
+                errors::ItemType::Group,
+                group_id.to_hex(),
+            )),
         }
     }
 
@@ -131,45 +132,115 @@ impl DB {
         group_id: String,
         group: m_group::UpdateGroup,
     ) -> Result<String> {
-        let group_id = ObjectId::parse_str(&group_id).unwrap();
-        let res = self
-            .group_collection
-            .update_one(
-                doc! {"_id": group_id},
-                doc! {"$set": {"name": &group.name, "groupType": bson::to_bson(&group.group_type)?, "updatedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
-            )
-            .await?;
-        if res.modified_count == 0 {
-            return Err(DBError::NotFoundError(group_id.to_hex()));
+        match self.is_group_active(&group_id).await {
+            Err(e) => Err(e),
+            Ok(false) => Err(DBError::NotFoundError(errors::ItemType::Group, group_id)),
+            Ok(true) => {
+                let group_id = ObjectId::parse_str(&group_id).unwrap();
+                let res = self
+                    .group_collection
+                    .update_one(
+                        doc! {"_id": group_id},
+                        doc! {"$set": {"name": &group.name, "groupType": bson::to_bson(&group.group_type)?, "updatedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
+                    )
+                    .await?;
+                if res.modified_count == 0 {
+                    return Err(DBError::NotFoundError(
+                        errors::ItemType::Group,
+                        group_id.to_hex(),
+                    ));
+                }
+                Ok(group_id.to_hex())
+            }
         }
-        Ok(group_id.to_hex())
     }
 
     pub async fn disband_group(&self, group_id: String) -> Result<()> {
-        let group_id = ObjectId::parse_str(&group_id).unwrap();
-        let res = self
-            .group_collection
-            .update_one(
-                doc! {"_id": group_id},
-                doc! {"$set": {"status": "Disbanded", "disbandedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
-            )
-            .await?;
-        if res.modified_count == 0 {
-            return Err(DBError::NotFoundError(group_id.to_hex()));
+        match self.is_group_active(&group_id).await {
+            Ok(false) => Err(DBError::NotFoundError(errors::ItemType::Group, group_id)),
+            Ok(true) => {
+                let group_id = ObjectId::parse_str(&group_id).unwrap();
+                let res = self
+                    .group_collection
+                    .update_one(
+                        doc! {"_id": group_id},
+                        doc! {"$set": {"status": "Disbanded", "disbandedAt": bson::Bson::DateTime(chrono::Utc::now().into())}},
+                    )
+                    .await?;
+                if res.modified_count == 0 {
+                    return Err(DBError::NotFoundError(
+                        errors::ItemType::Group,
+                        group_id.to_hex(),
+                    ));
+                }
+                Ok(())
+            }
+            Err(e) => Err(e),
         }
-        Ok(())
     }
 
-    pub async fn assign_members(&self, group_id: String, members: Vec<ObjectId>) -> Result<()> {
-        let group_id = ObjectId::parse_str(&group_id).unwrap();
-        let res = self
-            .group_collection
-            .update_one(doc! {"_id": group_id}, doc! {"$set": {"members": members}})
-            .await?;
-        if res.modified_count == 0 {
-            return Err(DBError::NotFoundError(group_id.to_hex()));
+    pub async fn assign_members(
+        &self,
+        group_id: String,
+        user_id: &String,
+        members: Vec<String>,
+    ) -> Result<()> {
+        match self.is_user_member(&group_id, user_id).await {
+            Ok(true) => {
+                return Err(DBError::MongoDuplicateError(
+                    "User is already a member".into(),
+                ))
+            }
+            Ok(false) => {
+                let group_id = ObjectId::parse_str(&group_id).unwrap();
+                let res = self
+                    .group_collection
+                    .update_one(doc! {"_id": group_id}, doc! {"$push": {"members": {"$each": members.iter().filter_map(|id| ObjectId::parse_str(id).ok()).collect::<Vec<ObjectId>>()}}})
+                    .await?;
+                if res.modified_count == 0 {
+                    return Err(DBError::NotFoundError(
+                        errors::ItemType::Group,
+                        group_id.to_hex(),
+                    ));
+                }
+                return Ok(());
+            }
+            Err(e) => return Err(e),
         }
-        Ok(())
+    }
+
+    pub async fn is_group_active(&self, group_id: &String) -> Result<bool> {
+        let group_id = ObjectId::parse_str(group_id).unwrap();
+        let group = self
+            .group_collection
+            .find_one(doc! {"_id": group_id, "status": "Active"})
+            .await?;
+        Ok(group.is_some())
+    }
+
+    pub async fn is_user_member(&self, group_id: &String, user_id: &String) -> Result<bool> {
+        if let Ok(is_admin) = self.is_user_admin(&group_id, &user_id).await {
+            if is_admin {
+                return Ok(true); // Admins are also members
+            }
+        }
+        let group_id = ObjectId::parse_str(group_id).unwrap();
+        let user_id = ObjectId::parse_str(user_id).unwrap();
+        let group = self
+            .group_collection
+            .find_one(doc! {"_id": group_id, "members": user_id})
+            .await?;
+        Ok(group.is_some())
+    }
+
+    pub async fn is_user_admin(&self, group_id: &String, user_id: &String) -> Result<bool> {
+        let group_id = ObjectId::parse_str(group_id).unwrap();
+        let user_id = ObjectId::parse_str(user_id).unwrap();
+        let group = self
+            .group_collection
+            .find_one(doc! {"_id": group_id, "admins": user_id})
+            .await?;
+        Ok(group.is_some())
     }
 
     pub async fn list_group_memerships_for_user(

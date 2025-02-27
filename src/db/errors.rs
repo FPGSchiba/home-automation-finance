@@ -1,14 +1,26 @@
 use axum::{http::StatusCode, Json};
 use serde::Serialize;
 
+#[derive(Debug)]
+pub enum ItemType {
+    Group,
+    Expense,
+    RepeatingExpense,
+    ExpenseCategory,
+    Budget,
+    BudgetCategory,
+    BudgetView,
+    SavingGoal,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum DBError {
     #[error("MongoDB error")]
     MongoError(#[from] mongodb::error::Error),
-    #[error("duplicate key error: {0}")]
+    #[error("duplicate error: {0}")]
     MongoErrorKind(mongodb::error::ErrorKind),
-    #[error("duplicate key error: {0}")]
-    MongoDuplicateError(mongodb::error::Error),
+    #[error("duplicate error: {0}")]
+    MongoDuplicateError(String),
     #[error("error during mongodb query: {0}")]
     MongoQueryError(mongodb::error::Error),
     #[error("error serializing BSON")]
@@ -17,8 +29,8 @@ pub enum DBError {
     MongoDataError(#[from] mongodb::bson::document::ValueAccessError),
     #[error("invalid ID: {0}")]
     InvalidIDError(String),
-    #[error("Note with ID: {0} not found")]
-    NotFoundError(String),
+    #[error("{0:?} with ID: {1} not found")]
+    NotFoundError(ItemType, String),
     #[error("Deserialization error")]
     DeserializationError(#[from] mongodb::bson::de::Error),
 }
@@ -53,11 +65,11 @@ impl Into<(axum::http::StatusCode, Json<serde_json::Value>)> for DBError {
                     message: format!("invalid ID: {}", id),
                 },
             ),
-            DBError::NotFoundError(id) => (
+            DBError::NotFoundError(item_type, id) => (
                 StatusCode::NOT_FOUND,
                 ErrorResponse {
                     status: "fail",
-                    message: format!("Note with ID: {} not found", id),
+                    message: format!("{:?} with ID: {} not found", item_type, id),
                 },
             ),
             DBError::MongoError(e) => (

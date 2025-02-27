@@ -19,3 +19,8 @@ pub struct HomeResponse<T: Serialize> {
 pub struct CreateDataResponse {
     pub id: String,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UserInformation {
+    pub user_id: String,
+}

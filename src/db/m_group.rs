@@ -1,9 +1,3 @@
-use crate::db::utils::{
-    deserialize_bson_datetime_from_rfc3339_string,
-    deserialize_option_bson_datetime_from_rfc3339_string,
-    deserialize_vec_object_id_from_hex_string, serialize_option_bson_datetime_as_rfc3339_string,
-    serialize_vec_object_id_as_hex_string,
-};
 use bson::{oid::ObjectId, DateTime};
 use serde::{Deserialize, Serialize};
 
@@ -119,6 +113,11 @@ pub struct UpdateGroup {
     pub name: Option<String>,
     #[serde(rename = "groupType")]
     pub group_type: Option<GroupType>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AssignMembers {
+    pub members: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
