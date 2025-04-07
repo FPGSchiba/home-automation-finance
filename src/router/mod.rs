@@ -158,7 +158,7 @@ pub fn get_router(is_debug: bool) -> Router {
     }
 
     Router::new()
-        .route("/", get(version))
+        .route("/api/v1/", get(version))
         .nest("/api/v1/", api_router)
         .layer(
             TraceLayer::new_for_http()
