@@ -79,6 +79,7 @@ async fn auth(
 ) -> Result<Response, StatusCode> {
     match get_token(&headers) {
         Some(token)
+            // TODO: Use a circuit breaker here https://docs.rs/failsafe/latest/failsafe/
             if token_is_valid(
                 token,
                 format!("/api/v1/finance{}/", request.uri().to_string()),
